@@ -1,9 +1,10 @@
 dataset_path: lmms-lab/GoogleDeepMind-NEPTUNE
-dataset_name: neptune_full
+dataset_name: full
 dataset_kwargs:
   token: True
   cache_dir: downloads
   video: True
+task: "neptune_full"
 output_type: generate_until
 doc_to_visual: !function utils.neptune_full_doc_to_visual
 doc_to_text: !function utils.neptune_full_doc_to_text
