@@ -1,6 +1,9 @@
 import json
 import os
+from pathlib import Path
 
+import yaml
+import sys
 from loguru import logger
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
@@ -18,10 +21,11 @@ with open(Path(__file__).parent / "neptune_full.yaml", "r") as f:
             safe_data.append(line)
 cache_name = yaml.safe_load("".join(safe_data))["dataset_kwargs"]["cache_dir"]
 
+
 def neptune_full_doc_to_visual(doc):
     cache_dir = os.path.join(base_cache_dir, cache_name)
-    video_path = doc["video_path"] + ".mp4"
-    video_path = os.path.join(cache_dir, "data", video_path)
+    video_path = doc["video_path"]
+    video_path = os.path.join(cache_dir, "downloads", video_path)
     if os.path.exists(video_path):
         video_path = video_path
     elif os.path.exists(video_path.replace("mp4", "MP4")):
