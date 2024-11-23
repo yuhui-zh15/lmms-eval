@@ -1,9 +1,10 @@
 import json
 import os
+import sys
+from glob import glob
 from pathlib import Path
 
 import yaml
-import sys
 from loguru import logger
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
@@ -24,17 +25,16 @@ cache_name = yaml.safe_load("".join(safe_data))["dataset_kwargs"]["cache_dir"]
 
 def neptune_full_doc_to_visual(doc):
     cache_dir = os.path.join(base_cache_dir, cache_name)
-    video_path = doc["video_path"]
-    video_path = os.path.join(cache_dir, "downloads", video_path)
-    if os.path.exists(video_path):
-        video_path = video_path
-    elif os.path.exists(video_path.replace("mp4", "MP4")):
-        video_path = video_path.replace("mp4", "MP4")
-    elif os.path.exists(video_path.replace("mp4", "mkv")):
-        video_path = video_path.replace("mp4", "mkv")
+    video_path = doc["video_path"].split(".")[0] + "*.mp4"
+    video_path = os.path.join(cache_dir, video_path)
+    video_path = [f for f in glob(video_path) if "temp" not in f]
+    if len(video_path) > 1:
+        return video_path[:1]
+    elif len(video_path) > 0:
+        return video_path
     else:
-        sys.exit(f"video path:{video_path} does not exist, please check")
-    return [video_path]
+        # Some stupid hardcode to skip this
+        return [f"video path:{video_path} does not exist, please check"]
 
 
 def neptune_full_doc_to_text(doc, lmms_eval_specific_kwargs):

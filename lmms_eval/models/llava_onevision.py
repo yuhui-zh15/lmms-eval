@@ -22,7 +22,7 @@ from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.model_utils.load_video import read_video_pyav
+from lmms_eval.models.model_utils.load_video import load_video_decord, read_video_pyav
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -367,17 +367,6 @@ class Llava_OneVision(lmms):
                 new_list.append(j)
         return new_list
 
-    def load_video(self, video_path, max_frames_num):
-        if type(video_path) == str:
-            vr = VideoReader(video_path, ctx=cpu(0))
-        else:
-            vr = VideoReader(video_path[0], ctx=cpu(0))
-        total_frame_num = len(vr)
-        uniform_sampled_frames = np.linspace(0, total_frame_num - 1, max_frames_num, dtype=int)
-        frame_idx = uniform_sampled_frames.tolist()
-        spare_frames = vr.get_batch(frame_idx).asnumpy()
-        return spare_frames  # (frames, height, width, channels)
-
     def generate_until(self, requests: List[Instance]) -> List[str]:
         res = []
 
@@ -461,7 +450,7 @@ class Llava_OneVision(lmms):
                         image_tensor = []
                         try:
                             if self.video_decode_backend == "decord":
-                                frames = self.load_video(visual, self.max_frames_num)
+                                frames = load_video_decord(visual, self.max_frames_num)
                             elif self.video_decode_backend == "pyav":
                                 frames = read_video_pyav(visual[0], num_frm=self.max_frames_num)
                             frames = self._image_processor.preprocess(frames, return_tensors="pt")["pixel_values"].half().cuda()
@@ -672,7 +661,7 @@ class Llava_OneVision(lmms):
                             image_tensor = []
                             try:
                                 if self.video_decode_backend == "decord":
-                                    frames = self.load_video(visual, self.max_frames_num)
+                                    frames = load_video_decord(visual, self.max_frames_num)
                                 elif self.video_decode_backend == "pyav":
                                     frames = read_video_pyav(visual[0], num_frm=self.max_frames_num)
                                 frames = self._image_processor.preprocess(frames, return_tensors="pt")["pixel_values"].half().cuda()

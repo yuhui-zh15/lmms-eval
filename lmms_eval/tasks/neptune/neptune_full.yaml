@@ -2,7 +2,8 @@ dataset_path: lmms-lab/GoogleDeepMind-NEPTUNE
 dataset_name: full
 dataset_kwargs:
   token: True
-  cache_dir: ./
+  cache_dir: neptune
+  video: True
 task: "neptune_full"
 test_split: test
 output_type: generate_until
