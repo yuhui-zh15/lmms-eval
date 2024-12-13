@@ -7,8 +7,8 @@ import pandas as pd
 import requests
 import yaml
 from loguru import logger as eval_logger
-from openai import AzureOpenAI, OpenAI
 from PIL import Image, ImageDraw, ImageFont
+from openai import AzureOpenAI, OpenAI
 
 
 def add_order_label(image, label, font_size=40):
@@ -18,7 +18,11 @@ def add_order_label(image, label, font_size=40):
     # Define font for the label
     # font_path = fm.findfont(fm.FontProperties(family=font_family))
     font_path = os.path.join(__file__, os.pardir, "arial.ttf")
-    font = ImageFont.truetype(font_path, font_size)
+    try:
+        font = ImageFont.truetype(font_path, font_size)
+    except Exception as e:
+        eval_logger.error(f"Error: {e}")
+        font = ImageFont.load_default()
 
     # Calculate text size and position
     text_width = text_height = font_size
@@ -187,11 +191,17 @@ with open(Path(__file__).parent / "mmvetv2.yaml", "r") as f:
 API_TYPE = os.getenv("API_TYPE", "openai")
 
 if API_TYPE == "openai":
-    client = OpenAI()
+    API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+    API_KEY = os.getenv("OPENAI_API_KEY", "YOUR_API_KEY")
+    client = OpenAI(api_key=API_KEY)
+    
 elif API_TYPE == "azure":
-    client = AzureOpenAI()
-
-GPT_EVAL_MODEL_NAME = config["metadata"]["gpt_eval_model_name"]
+    API_URL = os.getenv("AZURE_ENDPOINT", "https://api.cognitive.microsoft.com/sts/v1.0/issueToken")
+    API_KEY = os.getenv("AZURE_API_KEY", "YOUR_API_KEY")
+    API_VERSION = os.getenv("AZURE_API_VERSION", "2023-07-01-preview")
+    client = AzureOpenAI(api_key=API_KEY, azure_endpoint=API_URL, api_version=API_VERSION)
+    
+MODEL_VERSION = os.getenv("GPT_EVAL_MODEL_NAME", "gpt-4o")
 MM_VET_PROMPT = """Compare the ground truth and prediction from AI models, to give a correctness score for the prediction. <AND> in the ground truth means it is totally right only when all elements in the ground truth are present in the prediction, and <OR> means it is totally right when any one element in the ground truth is present in the prediction. The correctness score is 0.0 (totally wrong), 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, or 1.0 (totally right). Just complete the last space of the correctness score.
 gpt_query_prompt | Ground truth | Prediction | Correctness
 --- | --- | --- | ---
@@ -207,7 +217,7 @@ Can you explain this meme? | This meme is poking fun at the fact that the names 
 
 def get_chat_response(
     prompt,
-    model=GPT_EVAL_MODEL_NAME,
+    model=MODEL_VERSION,
     temperature=0.0,
     max_tokens=128,
     patience=3,
