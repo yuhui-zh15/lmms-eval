@@ -55,6 +55,7 @@ AVAILABLE_MODELS = {
     "videochat2": "VideoChat2",
     "llama_vision": "LlamaVision",
     "aria": "Aria",
+    "gpt4v_mmmu": "GPT4V_MMMU",
 }
 
 
