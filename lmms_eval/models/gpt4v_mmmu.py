@@ -4,6 +4,7 @@ import os
 import time
 from copy import deepcopy
 from io import BytesIO
+from pathlib import Path
 from typing import List, Tuple, Union
 
 import numpy as np
@@ -219,6 +220,9 @@ class GPT4V_MMMU(lmms):
                         continue
 
             try:
+                search_dir = Path("temp") / "search" / task / split / str(doc_id)
+                if not search_dir.exists():
+                    search_dir.mkdir(parents=True)
                 visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
                 visuals = self.flatten(visuals)
                 imgs = []  # multiple images or frames for video
@@ -279,6 +283,18 @@ class GPT4V_MMMU(lmms):
 
                 search_content = requery.search_text
 
+                with open(search_dir / "search_content.json", "w") as f:
+                    json.dump(
+                        {
+                            "doc_id": doc_id,
+                            "contexts": contexts,
+                            "search_content": search_content,
+                            "simple_response": str(simple_response),
+                            "review": review,
+                        },
+                        f,
+                    )
+
                 # Search using DuckDuckGo and get first result URL
                 ddgs = DDGS(timeout=50)
                 news_results = ddgs.text(keywords=search_content, region="wt-wt", safesearch="off", timelimit="m", max_results=10)
@@ -309,7 +325,8 @@ class GPT4V_MMMU(lmms):
                                     driver.execute_script(f"window.scrollTo(0, {1024 * i})")
                                     time.sleep(1)  # Wait for content to load
 
-                                screenshot_path = f"temp/search_result_{url_idx}_{i}.png"
+                                screenshot_path = search_dir / f"search_result_{url_idx}_{i}.png"
+
                                 driver.save_screenshot(screenshot_path)
 
                                 # Load and encode screenshot
