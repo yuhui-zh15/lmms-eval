@@ -23,7 +23,6 @@ textscore_dict, videoscore_dict = {}, {}
 def prep_data():
     global textscore_dict, videoscore_dict
     cache_dir = os.path.join(base_cache_dir, cache_name)
-    breakpoint()
     with open(os.path.join(cache_dir, "temporalbench_short_qa.json")) as f:
         textscore_list = json.load(f)
     textscore_dict = {}
