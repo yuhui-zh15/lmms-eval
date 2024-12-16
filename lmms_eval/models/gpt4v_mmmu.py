@@ -7,10 +7,12 @@ from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple, Union
 
+import crawl4ai
 import numpy as np
 import openai
 import requests as url_requests
 from accelerate import Accelerator, DistributedType
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode
 from duckduckgo_search import DDGS
 from pydantic import BaseModel
 from tqdm import tqdm
@@ -55,13 +57,14 @@ class SimpleResponse(BaseModel):
 
 class SearchResponse(BaseModel):
     reason: list[str]
+    need_search: bool
     # use_image_search: bool
     search_text: str
 
 
 class FinalResponse(BaseModel):
     steps: list[str]
-    result: str
+    final_result: str
 
 
 SIMPLE_QA_PROMPT = """\
@@ -99,6 +102,8 @@ REQUERY_PROMPT_SYSTEM = """\
 You are a web search agent. Your goal is to guide a model step by step in answering a question. You have one opportunity to perform an online search. Based on the question, the model's response, and the reviewer's feedback, you need to decide whether to assist the model by conducting a search to help it provide a better answer. You must analyze both the model's response and the reviewer's feedback to determine what information is uncertain or missing. The reviewer's feedback provides an additional perspective on potential gaps or issues in the model's response. If you still cannot identify the uncertainties after considering both perspectives, you should rely on your own experience to understand what information is missing. Use this comprehensive understanding to perform the search.
 
 Note: Your search should address the model's uncertainties rather than simply searching the question directly.
+
+If you think there is nothing uncertain, then there is no need to search. 
 
 For example:
 If the model's response shows uncertainty about a specific detail or concept, focus your search on clarifying that uncertainty rather than repeating the original question.
@@ -214,10 +219,12 @@ class GPT4V_MMMU(lmms):
                 doc_uuid = f"{task}___{split}___{doc_id}"
                 if doc_uuid in self.response_cache:
                     response_text = self.response_cache[doc_uuid]
-                    if response_text and len(response_text) < 16:
+                    if response_text:
                         res.append(response_text)
                         pbar.update(1)
                         continue
+
+            print(f"Generating for {task} {split} {doc_id}")
 
             try:
                 search_dir = Path("temp") / "search" / task / split / str(doc_id)
@@ -242,7 +249,7 @@ class GPT4V_MMMU(lmms):
                             {"role": "user", "content": [{"type": "text", "text": contexts}] + image_contents},
                         ],
                         response_format=SimpleResponse,
-                        max_tokens=4096,
+                        max_tokens=1024,
                     )
                     .choices[0]
                     .message.parsed
@@ -258,7 +265,7 @@ class GPT4V_MMMU(lmms):
                             },
                             {"role": "user", "content": [{"type": "text", "text": REVIEW_PROMPT.format(question=contexts, response=str(simple_response))}] + image_contents},
                         ],
-                        max_tokens=4096,
+                        max_tokens=1024,
                     )
                     .choices[0]
                     .message.content
@@ -275,7 +282,7 @@ class GPT4V_MMMU(lmms):
                             {"role": "user", "content": [{"type": "text", "text": REQUERY_PROMPT.format(question=contexts, response=str(simple_response), review=review)}] + image_contents},
                         ],
                         response_format=SearchResponse,
-                        max_tokens=4096,
+                        max_tokens=1024,
                     )
                     .choices[0]
                     .message.parsed
@@ -295,50 +302,51 @@ class GPT4V_MMMU(lmms):
                         f,
                     )
 
-                # Search using DuckDuckGo and get first result URL
-                ddgs = DDGS(timeout=50)
-                news_results = ddgs.text(keywords=search_content, region="wt-wt", safesearch="off", timelimit="m", max_results=10)
-                urls = [news["href"] for news in news_results]
+                search_image_contents = []
+                if requery.need_search:
+                    # Search using DuckDuckGo and get first result URL
+                    ddgs = DDGS(timeout=50)
+                    news_results = ddgs.text(keywords=search_content, region="wt-wt", safesearch="off", timelimit="m", max_results=10)
+                    urls = [news["href"] for news in news_results]
 
-                if urls:
-                    # Take screenshot of the first 3 webpages
-                    import selenium.webdriver
-                    from selenium.webdriver.chrome.options import Options
+                    if urls:
+                        # Take screenshot of the first 3 webpages
 
-                    chrome_options = Options()
-                    chrome_options.add_argument("--headless")
-                    chrome_options.add_argument("--no-sandbox")
-                    chrome_options.add_argument("--disable-dev-shm-usage")
-                    chrome_options.add_argument("--window-size=1024,1024")
+                        for url_idx, url in enumerate(urls[:3]):
+                            try:
+                                # Create and run async screenshot capture
+                                import asyncio
 
-                    search_image_contents = []
+                                async def capture(screenshot_path):
+                                    browser_config = BrowserConfig(viewport_width=768, viewport_height=2048)
+                                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                                        result = await crawler.arun(url=url, screenshot=True, screenshot_wait_for=2.0, simulate_user=True, magic=True, cache_mode=CacheMode.BYPASS)
 
-                    for url_idx, url in enumerate(urls[:3]):
-                        try:
-                            driver = selenium.webdriver.Chrome(options=chrome_options)
-                            driver.get(url)
+                                        if result.screenshot is None:
+                                            return
 
-                            # Take 3 screenshots while scrolling down
-                            for i in range(3):
-                                # Scroll down
-                                if i > 0:
-                                    driver.execute_script(f"window.scrollTo(0, {1024 * i})")
-                                    time.sleep(1)  # Wait for content to load
+                                        with open(screenshot_path, "wb") as f:
+                                            f.write(base64.b64decode(result.screenshot))
 
-                                screenshot_path = search_dir / f"search_result_{url_idx}_{i}.png"
+                                        img = Image.open(screenshot_path)
+                                        if img.height > 2048:
+                                            img = img.crop((0, 0, img.width, 2048))
+                                            img.save(screenshot_path)
 
-                                driver.save_screenshot(screenshot_path)
+                                        # Convert PIL Image to base64
+                                        buffered = BytesIO()
+                                        img.save(buffered, format="PNG")
+                                        img_str = base64.b64encode(buffered.getvalue()).decode()
 
-                                # Load and encode screenshot
-                                with open(screenshot_path, "rb") as f:
-                                    screenshot_bytes = f.read()
-                                screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                                search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}})
+                                        search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str}"}})
 
-                            driver.quit()
-                        except Exception as e:
-                            print(f"Error occurred: {e}")
-                            continue
+                                screenshot_path = search_dir / f"search_result_{url_idx}.png"
+
+                                asyncio.run(capture(screenshot_path))
+
+                            except Exception as e:
+                                print(f"Error occurred: {e}")
+                                continue
 
                 final_response = (
                     client.beta.chat.completions.parse(
@@ -346,12 +354,13 @@ class GPT4V_MMMU(lmms):
                         messages=[
                             {
                                 "role": "user",
-                                "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts, response=str(simple_response), review=review, requery=requery)}]
-                                + [{"type": "text", "text": "Here is the image for the query."}]
-                                + image_contents
-                                + [{"type": "text", "text": "Here are the search results."}]
+                                "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts, response=str(simple_response), review=review, requery=requery)}] + [{"type": "text", "text": "Here are the search results."}]
                                 if search_image_contents
-                                else [] + search_image_contents + [{"type": "text", "text": f'In "result", you need to directly answer the question as concise as possible: {contexts}'}],
+                                else []
+                                + search_image_contents
+                                + [{"type": "text", "text": f'In "steps", you need to answer the question step by step. In "final_result", you need to directly answer the question as concise as possible, only one simple phrase.'}]
+                                + [{"type": "text", "text": "[Question]\n\n" + contexts}]
+                                + image_contents,
                             },
                         ],
                         response_format=FinalResponse,
@@ -361,11 +370,11 @@ class GPT4V_MMMU(lmms):
                     .message.parsed
                 )
 
-                res.append(final_response.result)
+                res.append(final_response.final_result)
 
                 if self.continual_mode is True:  # Cache the response
                     doc_uuid = f"{task}___{split}___{doc_id}"
-                    self.response_cache[doc_uuid] = final_response.result
+                    self.response_cache[doc_uuid] = final_response.final_result
                     with open(self.response_persistent_file, "w") as f:
                         json.dump(self.response_cache, f)
 
