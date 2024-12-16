@@ -121,7 +121,9 @@ Now, here is the query and base model's response:
 """
 
 FINAL_PROMPT = """\
-Based on the search results, please provide a more accurate answer to the question. The base model's response may contain inaccuracies or errors that need to be corrected. Please critically evaluate the base response and use the search results to verify, correct, or enhance the answer. If you need more information, you can ask for it. Please provide a detailed explanation of your answer, highlighting any corrections or improvements made to the base response.
+Based on the search results, please provide a more accurate answer to the question. The base model's response may contain inaccuracies or errors that need to be corrected. Please critically evaluate the base response and use the search results to verify, correct, or enhance the answer. Please provide a detailed explanation of your answer, highlighting any corrections or improvements made to the base response.
+
+If you cannot see the search results, it may because of some technical issues. Don't worry, you need to still provide an answer based on the base model's response and the review feedback.
 
 [Query]
 
@@ -134,10 +136,6 @@ Based on the search results, please provide a more accurate answer to the questi
 [Review Response]
 
 {review}
-
-[Search Request]
-
-{requery}
 """
 
 
@@ -215,138 +213,148 @@ class GPT4V_MMMU(lmms):
                 doc_uuid = f"{task}___{split}___{doc_id}"
                 if doc_uuid in self.response_cache:
                     response_text = self.response_cache[doc_uuid]
-                    if response_text:
+                    if response_text and len(response_text) < 16:
                         res.append(response_text)
                         pbar.update(1)
                         continue
 
-            visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
-            visuals = self.flatten(visuals)
-            imgs = []  # multiple images or frames for video
-            for visual in visuals:
-                img = self.encode_image(visual)
-                imgs.append(img)
+            try:
+                visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
+                visuals = self.flatten(visuals)
+                imgs = []  # multiple images or frames for video
+                for visual in visuals:
+                    img = self.encode_image(visual)
+                    imgs.append(img)
 
-            image_contents = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}} for img in imgs]
-            simple_response = (
-                client.beta.chat.completions.parse(
-                    model=self.model_version,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": SIMPLE_QA_PROMPT,
-                        },
-                        {"role": "user", "content": [{"type": "text", "text": contexts}] + image_contents},
-                    ],
-                    response_format=SimpleResponse,
-                    max_tokens=4096,
+                image_contents = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}} for img in imgs]
+                simple_response = (
+                    client.beta.chat.completions.parse(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": SIMPLE_QA_PROMPT,
+                            },
+                            {"role": "user", "content": [{"type": "text", "text": contexts}] + image_contents},
+                        ],
+                        response_format=SimpleResponse,
+                        max_tokens=4096,
+                    )
+                    .choices[0]
+                    .message.parsed
                 )
-                .choices[0]
-                .message.parsed
-            )
 
-            review = (
-                client.chat.completions.create(
-                    model=self.model_version,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": REVIEW_PROMPT_SYSTEM,
-                        },
-                        {"role": "user", "content": [{"type": "text", "text": REVIEW_PROMPT.format(question=contexts, response=str(simple_response))}] + image_contents},
-                    ],
-                    max_tokens=4096,
+                review = (
+                    client.chat.completions.create(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": REVIEW_PROMPT_SYSTEM,
+                            },
+                            {"role": "user", "content": [{"type": "text", "text": REVIEW_PROMPT.format(question=contexts, response=str(simple_response))}] + image_contents},
+                        ],
+                        max_tokens=4096,
+                    )
+                    .choices[0]
+                    .message.content
                 )
-                .choices[0]
-                .message.content
-            )
 
-            requery = (
-                client.beta.chat.completions.parse(
-                    model=self.model_version,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": REQUERY_PROMPT_SYSTEM,
-                        },
-                        {"role": "user", "content": [{"type": "text", "text": REQUERY_PROMPT.format(question=contexts, response=str(simple_response), review=review)}] + image_contents},
-                    ],
-                    response_format=SearchResponse,
-                    max_tokens=4096,
+                requery = (
+                    client.beta.chat.completions.parse(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": REQUERY_PROMPT_SYSTEM,
+                            },
+                            {"role": "user", "content": [{"type": "text", "text": REQUERY_PROMPT.format(question=contexts, response=str(simple_response), review=review)}] + image_contents},
+                        ],
+                        response_format=SearchResponse,
+                        max_tokens=4096,
+                    )
+                    .choices[0]
+                    .message.parsed
                 )
-                .choices[0]
-                .message.parsed
-            )
 
-            search_content = requery.search_text
+                search_content = requery.search_text
 
-            # Search using DuckDuckGo and get first result URL
-            ddgs = DDGS(timeout=50)
-            news_results = ddgs.text(keywords=search_content, region="wt-wt", safesearch="off", timelimit="m", max_results=10)
-            urls = [news["href"] for news in news_results]
+                # Search using DuckDuckGo and get first result URL
+                ddgs = DDGS(timeout=50)
+                news_results = ddgs.text(keywords=search_content, region="wt-wt", safesearch="off", timelimit="m", max_results=10)
+                urls = [news["href"] for news in news_results]
 
-            if urls:
-                # Take screenshot of the first 3 webpages
-                import selenium.webdriver
-                from selenium.webdriver.chrome.options import Options
+                if urls:
+                    # Take screenshot of the first 3 webpages
+                    import selenium.webdriver
+                    from selenium.webdriver.chrome.options import Options
 
-                chrome_options = Options()
-                chrome_options.add_argument("--headless")
-                chrome_options.add_argument("--no-sandbox")
-                chrome_options.add_argument("--disable-dev-shm-usage")
-                chrome_options.add_argument("--window-size=1024,1024")
+                    chrome_options = Options()
+                    chrome_options.add_argument("--headless")
+                    chrome_options.add_argument("--no-sandbox")
+                    chrome_options.add_argument("--disable-dev-shm-usage")
+                    chrome_options.add_argument("--window-size=1024,1024")
 
-                search_image_contents = []
+                    search_image_contents = []
 
-                for url_idx, url in enumerate(urls[:3]):
-                    driver = selenium.webdriver.Chrome(options=chrome_options)
-                    driver.get(url)
+                    for url_idx, url in enumerate(urls[:3]):
+                        try:
+                            driver = selenium.webdriver.Chrome(options=chrome_options)
+                            driver.get(url)
 
-                    # Take 3 screenshots while scrolling down
-                    for i in range(3):
-                        # Scroll down
-                        if i > 0:
-                            driver.execute_script(f"window.scrollTo(0, {1024 * i})")
-                            time.sleep(1)  # Wait for content to load
+                            # Take 3 screenshots while scrolling down
+                            for i in range(3):
+                                # Scroll down
+                                if i > 0:
+                                    driver.execute_script(f"window.scrollTo(0, {1024 * i})")
+                                    time.sleep(1)  # Wait for content to load
 
-                        screenshot_path = f"search_result_{url_idx}_{i}.png"
-                        driver.save_screenshot(screenshot_path)
+                                screenshot_path = f"temp/search_result_{url_idx}_{i}.png"
+                                driver.save_screenshot(screenshot_path)
 
-                        # Load and encode screenshot
-                        with open(screenshot_path, "rb") as f:
-                            screenshot_bytes = f.read()
-                        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                        search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}})
+                                # Load and encode screenshot
+                                with open(screenshot_path, "rb") as f:
+                                    screenshot_bytes = f.read()
+                                screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+                                search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}})
 
-                    driver.quit()
+                            driver.quit()
+                        except Exception as e:
+                            print(f"Error occurred: {e}")
+                            continue
 
-            final_response = (
-                client.beta.chat.completions.parse(
-                    model=self.model_version,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts, response=str(simple_response), review=review, requery=requery)}]
-                            + [{"type": "text", "text": "Here is the image for the query."}]
-                            + image_contents
-                            + [{"type": "text", "text": "Here are the search results."}]
-                            + search_image_contents,
-                        },
-                    ],
-                    response_format=FinalResponse,
-                    max_tokens=4096,
+                final_response = (
+                    client.beta.chat.completions.parse(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts, response=str(simple_response), review=review, requery=requery)}]
+                                + [{"type": "text", "text": "Here is the image for the query."}]
+                                + image_contents
+                                + [{"type": "text", "text": "Here are the search results."}]
+                                if search_image_contents
+                                else [] + search_image_contents + [{"type": "text", "text": f'In "result", you need to directly answer the question as concise as possible: {contexts}'}],
+                            },
+                        ],
+                        response_format=FinalResponse,
+                        max_tokens=4096,
+                    )
+                    .choices[0]
+                    .message.parsed
                 )
-                .choices[0]
-                .message.parsed
-            )
 
-            res.append(final_response.result)
+                res.append(final_response.result)
 
-            if self.continual_mode is True:  # Cache the response
-                doc_uuid = f"{task}___{split}___{doc_id}"
-                self.response_cache[doc_uuid] = response_text
-                with open(self.response_persistent_file, "w") as f:
-                    json.dump(self.response_cache, f)
+                if self.continual_mode is True:  # Cache the response
+                    doc_uuid = f"{task}___{split}___{doc_id}"
+                    self.response_cache[doc_uuid] = final_response.result
+                    with open(self.response_persistent_file, "w") as f:
+                        json.dump(self.response_cache, f)
+
+            except Exception as e:
+                eval_logger.error(f"Error occurred: {e}")
+                res.append("")
 
         pbar.close()
         return res
