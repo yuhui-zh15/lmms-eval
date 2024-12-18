@@ -63,8 +63,8 @@ class SearchResponse(BaseModel):
 
 
 class FinalResponse(BaseModel):
-    steps: list[str]
-    final_result: str
+    reason: str
+    single_phrase_decision: str
 
 
 SIMPLE_QA_PROMPT = """\
@@ -265,7 +265,7 @@ class GPT4V_MMMU(lmms):
                             },
                             {"role": "user", "content": [{"type": "text", "text": REVIEW_PROMPT.format(question=contexts, response=str(simple_response))}] + image_contents},
                         ],
-                        max_tokens=1024,
+                        max_tokens=512,
                     )
                     .choices[0]
                     .message.content
@@ -303,6 +303,7 @@ class GPT4V_MMMU(lmms):
                     )
 
                 search_image_contents = []
+                # requery.need_search = False
                 if requery.need_search:
                     # Search using DuckDuckGo and get first result URL
                     ddgs = DDGS(timeout=50)
@@ -312,7 +313,7 @@ class GPT4V_MMMU(lmms):
                     if urls:
                         # Take screenshot of the first 3 webpages
 
-                        for url_idx, url in enumerate(urls[:3]):
+                        for url_idx, url in enumerate(urls[:2]):
                             try:
                                 # Create and run async screenshot capture
                                 import asyncio
@@ -358,23 +359,23 @@ class GPT4V_MMMU(lmms):
                                 if search_image_contents
                                 else []
                                 + search_image_contents
-                                + [{"type": "text", "text": f'In "steps", you need to answer the question step by step. In "final_result", you need to directly answer the question as concise as possible, only one simple phrase.'}]
+                                + [{"type": "text", "text": f'In "steps", you need to answer the question step by step. In "final_result", you need to directly answer the question as concise as possible, only some simple phrases.'}]
                                 + [{"type": "text", "text": "[Question]\n\n" + contexts}]
                                 + image_contents,
                             },
                         ],
                         response_format=FinalResponse,
-                        max_tokens=4096,
+                        max_tokens=1024,
                     )
                     .choices[0]
                     .message.parsed
                 )
 
-                res.append(final_response.final_result)
+                res.append(final_response.single_phrase_decision)
 
                 if self.continual_mode is True:  # Cache the response
                     doc_uuid = f"{task}___{split}___{doc_id}"
-                    self.response_cache[doc_uuid] = final_response.final_result
+                    self.response_cache[doc_uuid] = final_response.single_phrase_decision
                     with open(self.response_persistent_file, "w") as f:
                         json.dump(self.response_cache, f)
 
