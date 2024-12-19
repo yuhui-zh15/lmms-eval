@@ -63,8 +63,8 @@ class SearchResponse(BaseModel):
 
 
 class FinalResponse(BaseModel):
-    reason: str
-    single_phrase_decision: str
+    steps: list[str]
+    final_answer: str
 
 
 SIMPLE_QA_PROMPT = """\
@@ -101,7 +101,7 @@ REVIEW_PROMPT = """\
 REQUERY_PROMPT_SYSTEM = """\
 You are a web search agent. Your goal is to guide a model step by step in answering a question. You have one opportunity to perform an online search. Based on the question, the model's response, and the reviewer's feedback, you need to decide whether to assist the model by conducting a search to help it provide a better answer. You must analyze both the model's response and the reviewer's feedback to determine what information is uncertain or missing. The reviewer's feedback provides an additional perspective on potential gaps or issues in the model's response. If you still cannot identify the uncertainties after considering both perspectives, you should rely on your own experience to understand what information is missing. Use this comprehensive understanding to perform the search.
 
-Note: Your search should address the model's uncertainties rather than simply searching the question directly.
+If you think a certain step is wrong, you can try to search for knowledge about that step. If you think there is a problem with the idea or direction of the whole answer, you can also try to search for similar questions or tutorials to find the direction.
 
 If you think there is nothing uncertain, then there is no need to search. 
 
@@ -127,21 +127,13 @@ Now, here is the query and base model's response:
 """
 
 FINAL_PROMPT = """\
-Based on the search results, please provide a more accurate answer to the question. The base model's response may contain inaccuracies or errors that need to be corrected. Please critically evaluate the base response and use the search results to verify, correct, or enhance the answer. Please provide a detailed explanation of your answer, highlighting any corrections or improvements made to the base response.
+You are a agent who needs to provide an answer to the question.
 
-If you cannot see the search results, it may because of some technical issues. Don't worry, you need to still provide an answer based on the base model's response and the review feedback.
+You need to write all your thoughts in steps and write a concise solution (maybe one or two words) in final answer.
 
-[Query]
+[Question]
 
 {question}
-
-[Base Model's Response]
-
-{response}
-
-[Review Response]
-
-{review}
 """
 
 
@@ -355,13 +347,16 @@ class GPT4V_MMMU(lmms):
                         messages=[
                             {
                                 "role": "user",
-                                "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts, response=str(simple_response), review=review, requery=requery)}] + [{"type": "text", "text": "Here are the search results."}]
+                                "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts)}]
+                                + image_contents
+                                + [
+                                    {
+                                        "type": "text",
+                                        "text": "Here are some reference to help you better answer the question. If you cannot see these reference, it may because of some technical issues. Don't worry, you need to still provide an answer.",
+                                    }
+                                ]
                                 if search_image_contents
-                                else []
-                                + search_image_contents
-                                + [{"type": "text", "text": f'In "steps", you need to answer the question step by step. In "final_result", you need to directly answer the question as concise as possible, only some simple phrases.'}]
-                                + [{"type": "text", "text": "[Question]\n\n" + contexts}]
-                                + image_contents,
+                                else [] + search_image_contents,
                             },
                         ],
                         response_format=FinalResponse,
@@ -371,11 +366,11 @@ class GPT4V_MMMU(lmms):
                     .message.parsed
                 )
 
-                res.append(final_response.single_phrase_decision)
+                res.append(final_response.final_answer)
 
                 if self.continual_mode is True:  # Cache the response
                     doc_uuid = f"{task}___{split}___{doc_id}"
-                    self.response_cache[doc_uuid] = final_response.single_phrase_decision
+                    self.response_cache[doc_uuid] = final_response.final_answer
                     with open(self.response_persistent_file, "w") as f:
                         json.dump(self.response_cache, f)
 
