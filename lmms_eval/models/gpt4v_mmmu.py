@@ -64,12 +64,12 @@ class SearchResponse(BaseModel):
 
 
 class FinalResponse(BaseModel):
-    thinking: str
+    chain_of_thought: str
     final_answer: str
 
     def to_dict(self):
         return {
-            "thinking": self.thinking,
+            "thinking": self.chain_of_thought,
             "final_answer": self.final_answer,
         }
 
@@ -228,9 +228,9 @@ class GPT4V_MMMU(lmms):
             print(f"Generating for {task} {split} {doc_id}")
 
             try:
-                # search_dir = Path("temp") / "search" / task / split / str(doc_id)
-                # if not search_dir.exists():
-                #     search_dir.mkdir(parents=True)
+                search_dir = Path("temp") / "search" / task / split / str(doc_id)
+                if not search_dir.exists():
+                    search_dir.mkdir(parents=True)
                 visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
                 visuals = self.flatten(visuals)
                 imgs = []  # multiple images or frames for video
@@ -239,143 +239,144 @@ class GPT4V_MMMU(lmms):
                     imgs.append(img)
 
                 image_contents = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}} for img in imgs]
-                # simple_response = (
-                #     client.beta.chat.completions.parse(
-                #         model=self.model_version,
-                #         messages=[
-                #             {
-                #                 "role": "system",
-                #                 "content": SIMPLE_QA_PROMPT,
-                #             },
-                #             {"role": "user", "content": [{"type": "text", "text": contexts}] + image_contents},
-                #         ],
-                #         response_format=SimpleResponse,
-                #         max_tokens=2048,
-                #     )
-                #     .choices[0]
-                #     .message.parsed
-                # )
+                simple_response = (
+                    client.beta.chat.completions.parse(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": SIMPLE_QA_PROMPT,
+                            },
+                            {"role": "user", "content": [{"type": "text", "text": contexts}] + image_contents},
+                        ],
+                        response_format=SimpleResponse,
+                        max_tokens=2048,
+                    )
+                    .choices[0]
+                    .message.parsed
+                )
 
-                # review = (
-                #     client.chat.completions.create(
-                #         model=self.model_version,
-                #         messages=[
-                #             {
-                #                 "role": "system",
-                #                 "content": REVIEW_PROMPT_SYSTEM,
-                #             },
-                #             {"role": "user", "content": [{"type": "text", "text": REVIEW_PROMPT.format(question=contexts, response=str(simple_response))}] + image_contents},
-                #         ],
-                #         max_tokens=1024,
-                #     )
-                #     .choices[0]
-                #     .message.content
-                # )
+                review = (
+                    client.chat.completions.create(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": REVIEW_PROMPT_SYSTEM,
+                            },
+                            {"role": "user", "content": [{"type": "text", "text": REVIEW_PROMPT.format(question=contexts, response=str(simple_response))}] + image_contents},
+                        ],
+                        max_tokens=1024,
+                    )
+                    .choices[0]
+                    .message.content
+                )
 
-                # requery = (
-                #     client.beta.chat.completions.parse(
-                #         model=self.model_version,
-                #         messages=[
-                #             {
-                #                 "role": "system",
-                #                 "content": REQUERY_PROMPT_SYSTEM,
-                #             },
-                #             {"role": "user", "content": [{"type": "text", "text": REQUERY_PROMPT.format(question=contexts, response=str(simple_response), review=review)}] + image_contents},
-                #         ],
-                #         response_format=SearchResponse,
-                #         max_tokens=1024,
-                #     )
-                #     .choices[0]
-                #     .message.parsed
-                # )
+                requery = (
+                    client.beta.chat.completions.parse(
+                        model=self.model_version,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": REQUERY_PROMPT_SYSTEM,
+                            },
+                            {"role": "user", "content": [{"type": "text", "text": REQUERY_PROMPT.format(question=contexts, response=str(simple_response), review=review)}] + image_contents},
+                        ],
+                        response_format=SearchResponse,
+                        max_tokens=1024,
+                    )
+                    .choices[0]
+                    .message.parsed
+                )
 
-                # search_content = requery.search_text
+                search_content = requery.search_text
 
-                # with open(search_dir / "search_content.json", "w") as f:
-                #     json.dump(
-                #         {
-                #             "doc_id": doc_id,
-                #             "contexts": contexts,
-                #             "search_content": search_content,
-                #             "simple_response": str(simple_response),
-                #             "review": review,
-                #         },
-                #         f,
-                #         indent=4,
-                #     )
+                with open(search_dir / "search_content.json", "w") as f:
+                    json.dump(
+                        {
+                            "doc_id": doc_id,
+                            "contexts": contexts,
+                            "search_content": search_content,
+                            "simple_response": str(simple_response),
+                            "review": review,
+                        },
+                        f,
+                        indent=4,
+                    )
 
-                # search_image_contents = []
-                # # requery.need_search = False
-                # if requery.need_search:
-                #     # Search using DuckDuckGo and get first result URL
-                #     urls = search(search_content, num_results=5)
+                search_image_contents = []
+                # requery.need_search = False
+                if requery.need_search:
+                    # Search using DuckDuckGo and get first result URL
+                    urls = search(search_content, num_results=5)
 
-                #     if urls:
-                #         # Take screenshot of the first 3 webpages
+                    if urls:
+                        # Take screenshot of the first 3 webpages
 
-                #         for url_idx, url in enumerate(urls):
-                #             if len(search_image_contents) >= 4:
-                #                 break
+                        for url_idx, url in enumerate(urls):
+                            if len(search_image_contents) >= 4:
+                                break
 
-                #             if url.endswith(".pdf"):
-                #                 continue
+                            if url.endswith(".pdf"):
+                                continue
 
-                #             try:
-                #                 # Create and run async screenshot capture
-                #                 import asyncio
+                            try:
+                                # Create and run async screenshot capture
+                                import asyncio
 
-                #                 async def capture(screenshot_path):
-                #                     browser_config = BrowserConfig(viewport_width=768, viewport_height=2048)
-                #                     async with AsyncWebCrawler(config=browser_config) as crawler:
-                #                         result = await crawler.arun(url=url, screenshot=True, screenshot_wait_for=2.0, simulate_user=True, magic=True, cache_mode=CacheMode.BYPASS)
+                                async def capture(screenshot_path):
+                                    browser_config = BrowserConfig(viewport_width=768, viewport_height=2048)
+                                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                                        result = await crawler.arun(url=url, screenshot=True, screenshot_wait_for=2.0, simulate_user=True, magic=True, cache_mode=CacheMode.BYPASS)
 
-                #                         if result.screenshot is None:
-                #                             return
+                                        if result.screenshot is None:
+                                            return
 
-                #                         with open(screenshot_path, "wb") as f:
-                #                             f.write(base64.b64decode(result.screenshot))
+                                        with open(screenshot_path, "wb") as f:
+                                            f.write(base64.b64decode(result.screenshot))
 
-                #                         img = Image.open(screenshot_path)
-                #                         if img.height > 2048:
-                #                             img = img.crop((0, 0, img.width, 2048))
-                #                             img.save(screenshot_path)
+                                        img = Image.open(screenshot_path)
+                                        if img.height > 2048:
+                                            img = img.crop((0, 0, img.width, 2048))
+                                            img.save(screenshot_path)
 
-                #                         img1 = img.crop((0, 0, img.width, img.height // 2))
-                #                         img2 = img.crop((0, img.height // 2, img.width, img.height))
+                                        img1 = img.crop((0, 0, img.width, img.height // 2))
+                                        img2 = img.crop((0, img.height // 2, img.width, img.height))
 
-                #                         # Convert PIL Image to base64
-                #                         buffered = BytesIO()
-                #                         img1.save(buffered, format="PNG")
-                #                         img_str1 = base64.b64encode(buffered.getvalue()).decode()
-                #                         img2.save(buffered, format="PNG")
-                #                         img_str2 = base64.b64encode(buffered.getvalue()).decode()
+                                        # Convert PIL Image to base64
+                                        buffered = BytesIO()
+                                        img1.save(buffered, format="PNG")
+                                        img_str1 = base64.b64encode(buffered.getvalue()).decode()
+                                        img2.save(buffered, format="PNG")
+                                        img_str2 = base64.b64encode(buffered.getvalue()).decode()
 
-                #                         search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str1}"}})
-                #                         search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str2}"}})
+                                        search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str1}"}})
+                                        search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str2}"}})
 
-                #                 screenshot_path = search_dir / f"search_result_{url_idx}.png"
+                                screenshot_path = search_dir / f"search_result_{url_idx}.png"
 
-                #                 asyncio.run(capture(screenshot_path))
+                                asyncio.run(capture(screenshot_path))
 
-                #             except Exception as e:
-                #                 print(f"Error occurred: {e}")
-                #                 continue
+                            except Exception as e:
+                                print(f"Error occurred: {e}")
+                                continue
 
                 messages = [
                     {
                         "role": "user",
-                        "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts)}] + image_contents
-                        # + (
-                        #     [
-                        #         {
-                        #             "type": "text",
-                        #             "text": "Here are some reference to help you better answer the question. If you cannot see these reference, it may because of some technical issues. Don't worry, you need to still provide an answer.",
-                        #         }
-                        #     ]
-                        #     if search_image_contents
-                        #     else []
-                        # )
-                        # + search_image_contents,
+                        "content": [{"type": "text", "text": FINAL_PROMPT.format(question=contexts)}]
+                        + image_contents
+                        + (
+                            [
+                                {
+                                    "type": "text",
+                                    "text": "Here are some reference to help you better answer the question. If you cannot see these reference, it may because of some technical issues. Don't worry, you need to still provide an answer.",
+                                }
+                            ]
+                            if search_image_contents
+                            else []
+                        )
+                        + search_image_contents,
                     },
                 ]
 
@@ -392,12 +393,12 @@ class GPT4V_MMMU(lmms):
 
                 res.append(final_response.final_answer)
 
-                # with open(search_dir / "final_response.json", "w") as f:
-                #     json.dump(
-                #         final_response.to_dict(),
-                #         f,
-                #         indent=4,
-                #     )
+                with open(search_dir / "final_response.json", "w") as f:
+                    json.dump(
+                        final_response.to_dict(),
+                        f,
+                        indent=4,
+                    )
 
                 if self.continual_mode is True:  # Cache the response
                     doc_uuid = f"{task}___{split}___{doc_id}"
