@@ -57,6 +57,17 @@ def mmmu_doc_to_text(doc):
     question = construct_prompt(doc)
     if config["metadata"]["interleaved_format"]:
         question = replace_images_tokens(question)
+    id = doc["id"]
+    field = "_".join(id.split("_")[1:-1])
+    for dom, sub_cats in DOMAIN_CAT2SUB_CAT.items():
+        if field in sub_cats:
+            field = dom
+            break
+    question = {
+        "field": field,
+        "question": question,
+    }
+    question = json.dumps(question)
     return question
 
 
