@@ -547,6 +547,9 @@ class GPT4V_MMMU(lmms):
 
                                 asyncio.run(capture(screenshot_path, markdown_path, return_image=True, return_text=True))
 
+                                with open(search_dir / f"search_result_url_{url_idx}.txt", "w") as f:
+                                    f.write(url)
+
                             except Exception as e:
                                 print(f"Error occurred: {e}")
                                 continue
