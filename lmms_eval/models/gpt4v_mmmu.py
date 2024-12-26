@@ -465,7 +465,7 @@ class GPT4V_MMMU(lmms):
                         # Take screenshot of the first 3 webpages
 
                         for url_idx, url in enumerate(urls):
-                            if len(search_image_contents) >= 2:
+                            if len(search_image_contents) >= 4:
                                 break
 
                             # if url.endswith(".pdf"):
@@ -475,7 +475,7 @@ class GPT4V_MMMU(lmms):
                                 # Create and run async screenshot capture
                                 import asyncio
 
-                                async def capture(screenshot_path, return_image=False):
+                                async def capture(screenshot_path, markdown_path=None, return_image=False, return_text=False):
                                     if return_image:
                                         browser_config = BrowserConfig(viewport_width=768, viewport_height=2048)
                                         async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -489,21 +489,6 @@ class GPT4V_MMMU(lmms):
                                                 remove_overlay_elements=True,
                                                 excluded_tags=["form", "header", "footer"],
                                             )
-                                    else:
-                                        async with AsyncWebCrawler() as crawler:
-                                            result = await crawler.arun(
-                                                url=url,
-                                                screenshot=True,
-                                                screenshot_wait_for=2.0,
-                                                simulate_user=True,
-                                                magic=True,
-                                                cache_mode=CacheMode.BYPASS,
-                                                remove_overlay_elements=True,
-                                                excluded_tags=["form", "header", "footer"],
-                                            )
-
-                                        if "verify" in result.html.lower() and "human" in result.html.lower():
-                                            return
 
                                         if result.screenshot is None:
                                             return
@@ -530,13 +515,34 @@ class GPT4V_MMMU(lmms):
                                             search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str1}"}})
                                             search_image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_str2}"}})
 
-                                        else:
-                                            search_image_contents.append({"type": "text", "text": result.markdown})
-                                            print(result.markdown)
+                                    if return_text:
+                                        async with AsyncWebCrawler() as crawler:
+                                            result = await crawler.arun(
+                                                url=url,
+                                                screenshot=True,
+                                                screenshot_wait_for=2.0,
+                                                simulate_user=True,
+                                                magic=True,
+                                                cache_mode=CacheMode.BYPASS,
+                                                remove_overlay_elements=True,
+                                                excluded_tags=["form", "header", "footer"],
+                                            )
+
+                                        if "verify" in result.html.lower() and "human" in result.html.lower():
+                                            return
+
+                                        search_image_contents.append({"type": "text", "text": result.markdown})
+
+                                        if markdown_path:
+                                            with open(markdown_path, "w") as f:
+                                                f.write(result.markdown)
+
+                                        # print(result.markdown)
 
                                 screenshot_path = search_dir / f"search_result_{url_idx}.png"
+                                markdown_path = search_dir / f"search_result_{url_idx}.md"
 
-                                asyncio.run(capture(screenshot_path))
+                                asyncio.run(capture(screenshot_path, markdown_path, return_image=True, return_text=True))
 
                             except Exception as e:
                                 print(f"Error occurred: {e}")
