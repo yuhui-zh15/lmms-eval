@@ -465,6 +465,9 @@ class GPT4V_MMMU(lmms):
                         # Take screenshot of the first 3 webpages
 
                         for url_idx, url in enumerate(urls):
+                            if "sciencedirect" in url:
+                                continue
+
                             if len(search_image_contents) >= 4:
                                 break
 
