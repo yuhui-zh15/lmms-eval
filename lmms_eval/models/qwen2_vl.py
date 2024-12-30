@@ -38,7 +38,7 @@ class Qwen2_VL(lmms):
         batch_size: Optional[Union[int, str]] = 1,
         use_cache=True,
         use_flash_attention_2: Optional[bool] = False,
-        max_pixels: int = 12845056,
+        max_pixels: int = 1605632,
         min_pixels: int = 3136,
         max_num_frames: int = 32,
         **kwargs,
