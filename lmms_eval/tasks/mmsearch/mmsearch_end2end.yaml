@@ -27,5 +27,5 @@ metric_list:
     aggregation: !function lmms_eval_utils.mmsearch_aggregate_results_req_score
     higher_is_better: true
 lmms_eval_specific_kwargs: # whenever a sample is infered, save it
-  middle_resules_dir: /data1/zrr/jdz/mmsearch/mmsearch_middile_results
-  result_cache_dir: /data1/zrr/jdz/mmsearch/mmsearch_result_cache_dir
+  middle_resules_dir: temp/mmsearch/mmsearch_middile_results
+  result_cache_dir: temp/mmsearch/mmsearch_result_cache_dir
