@@ -1,4 +1,6 @@
 import base64
+import json
+import os
 from io import BytesIO
 from typing import List, Optional, Tuple, Union
 
@@ -38,12 +40,14 @@ class Qwen2_VL(lmms):
         batch_size: Optional[Union[int, str]] = 1,
         use_cache=True,
         use_flash_attention_2: Optional[bool] = True,
-        max_pixels: int = 12845056,
+        max_pixels: int = 1605632,
         min_pixels: int = 3136,
-        max_num_frames: int = 256,
-        use_custom_video_loader: Optional[bool] = False,
+        max_num_frames: int = 10,
+        use_custom_video_loader: Optional[bool] = True,
         fps: Optional[float] = None,  # Only applicable if use_custom_video_loader is True
-        max_image_size: Optional[int] = None,  # Only applicable if use_custom_video_loader is True
+        max_image_size: Optional[int] = 1024,  # Only applicable if use_custom_video_loader is True
+        continual_mode: bool = False,
+        response_persistent_folder: str = None,  # We will cache the Gemini API response in this path and use it for future requests
         **kwargs,
     ) -> None:
         super().__init__()
@@ -115,6 +119,24 @@ class Qwen2_VL(lmms):
             self._rank = 0
             self._word_size = 1
 
+        self.continual_mode = continual_mode
+        if self.continual_mode and response_persistent_folder is None:
+            raise ValueError("Continual mode requires a persistent path for the response. We will cache the Gemini API response in this path and use it for future requests. Please provide a valid path.")
+        if self.continual_mode:
+            self.response_persistent_folder = response_persistent_folder
+            if not os.path.exists(self.response_persistent_folder):
+                os.makedirs(self.response_persistent_folder)
+            self.model_version = pretrained.split("/")[-1].replace("-", "_").lower()
+            self.response_persistent_file = os.path.join(self.response_persistent_folder, f"{self.model_version}_response.json")
+
+            if os.path.exists(self.response_persistent_file):
+                with open(self.response_persistent_file, "r") as f:
+                    self.response_cache = json.load(f)
+                self.cache_mode = "resume"
+            else:
+                self.response_cache = {}
+                self.cache_mode = "start"
+
     @property
     def config(self):
         # return the associated transformers.AutoConfig for the given pretrained model.
@@ -169,6 +191,9 @@ class Qwen2_VL(lmms):
     def generate_until(self, requests: List[Instance]) -> List[str]:
         res = []
 
+        def get_uuid(task, split, doc_id):
+            return f"{task}___{split}___{doc_id}"
+
         def _collate(x):
             # the negative sign on len(toks) sorts descending - this has a few advantages:
             # - time estimates will always be over not underestimates, which is more useful for planning
@@ -187,8 +212,18 @@ class Qwen2_VL(lmms):
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
         for chunk in chunks:
             contexts, all_gen_kwargs, doc_to_visual, doc_id, task, split = zip(*chunk)
+
             task = task[0]
             split = split[0]
+            if self.continual_mode and self.cache_mode == "resume":
+                doc_uuid = get_uuid(task, split, doc_id)
+                print(doc_uuid)
+                if doc_uuid in self.response_cache:
+                    content = self.response_cache[doc_uuid]
+                    if content:
+                        res.extend(content)
+                        pbar.update(1)
+                        continue
             visuals = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids in doc_id]
             visuals = self.flatten(visuals)
 
@@ -211,10 +246,17 @@ class Qwen2_VL(lmms):
             for i in range(len(contexts)):
                 if "<image>" in contexts[i]:
                     contexts[i] = contexts[i].replace("<image>", "")
+                if "<image 1>" in contexts[i]:
+                    contexts[i] = contexts[i].replace("<image 1>", "<image 32>")
+                if "\\<image 1\\>" in contexts[i]:
+                    contexts[i] = contexts[i].replace("\\<image 1\\>", "\\<image 32\\>")
+                print(contexts[i])
 
             messages = []
             processed_visuals = []
             for i, context in enumerate(contexts):
+                context += "\nPlease think step by step.\nThe quiz image is the last image."
+
                 if "<image>" in context:
                     context = context.replace("<image>", "")
 
@@ -293,16 +335,22 @@ class Qwen2_VL(lmms):
             generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, cont)]
             answers = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
             for i, ans in enumerate(answers):
-                for term in until:
-                    if len(term) > 0:
-                        ans = ans.split(term)[0]
                 answers[i] = ans
 
+            content = []
             for ans, context in zip(answers, contexts):
                 res.append(ans)
+                content.append(ans)
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), ans)
                 pbar.update(1)
             # reorder this group of results back to original unsorted form
+
+            if self.continual_mode is True:  # Cache the response
+                doc_uuid = get_uuid(task, split, doc_id)
+                self.response_cache[doc_uuid] = content
+                with open(self.response_persistent_file, "w") as f:
+                    json.dump(self.response_cache, f)
+
         res = re_ords.get_original(res)
 
         pbar.close()
