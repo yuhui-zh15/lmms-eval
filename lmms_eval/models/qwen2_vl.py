@@ -43,9 +43,9 @@ class Qwen2_VL(lmms):
         max_pixels: int = 1605632,
         min_pixels: int = 3136,
         max_num_frames: int = 10,
-        use_custom_video_loader: Optional[bool] = True,
+        use_custom_video_loader: Optional[bool] = False,
         fps: Optional[float] = None,  # Only applicable if use_custom_video_loader is True
-        max_image_size: Optional[int] = 1024,  # Only applicable if use_custom_video_loader is True
+        max_image_size: Optional[int] = None,  # Only applicable if use_custom_video_loader is True
         continual_mode: bool = False,
         response_persistent_folder: str = None,  # We will cache the Gemini API response in this path and use it for future requests
         **kwargs,
@@ -91,11 +91,6 @@ class Qwen2_VL(lmms):
         self.max_pixels = max_pixels
         self.min_pixels = min_pixels
         self.max_num_frames = max_num_frames
-        self.processor = AutoProcessor.from_pretrained(pretrained, max_pixels=max_pixels, min_pixels=min_pixels)
-        self.max_pixels = max_pixels
-        self.min_pixels = min_pixels
-        self.max_num_frames = max_num_frames
-        self._tokenizer = AutoTokenizer.from_pretrained(pretrained)
 
         self._config = self.model.config
         self.batch_size_per_gpu = int(batch_size)
@@ -248,16 +243,18 @@ class Qwen2_VL(lmms):
                     contexts[i] = contexts[i].replace("<image 1>", "<image>")
                 if "\\<image 1\\>" in contexts[i]:
                     contexts[i] = contexts[i].replace("\\<image 1\\>", "<image>")
-                print(contexts[i])
+                if "<image>" in contexts[i]:
+                    contexts[i] = contexts[i].replace("<image>", "")
+                # print(contexts[i])
 
             messages = []
             processed_visuals = []
             for i, context in enumerate(contexts):
                 context += "\nPlease think step by step."
 
-                if "<image>" in context:
-                    context = context.split("<image>")
-                    assert len(context) == 2, f"Expected 2 parts in context but got {len(context)}"
+                # if "<image>" in context:
+                #     context = context.split("<image>")
+                #     assert len(context) == 2, f"Expected 2 parts in context but got {len(context)}"
 
                 message = [{"role": "system", "content": "You are a helpful assistant."}]
 
@@ -267,13 +264,6 @@ class Qwen2_VL(lmms):
                         if self.use_custom_video_loader:
                             visual = read_video_pyav_base64(visual, num_frm=self.max_num_frames, fps=self.fps, img_format="JPEG", max_image_size=self.max_image_size)
                             image_contents = list(map(lambda x: f"data:image/jpeg;base64,{x}", visual))
-                            if len(context) == 2:
-                                message.append(
-                                    {"role": "user", "content": [{"type": "video", "video": image_contents[:-1]}, {"type": "text", "text": context[0]}, {"type": "image", "image": image_contents[-1]}, {"type": "text", "text": context[1]}]}
-                                )
-                                import json
-
-                                print("message", json.dumps(context, indent=4))
                             message.append({"role": "user", "content": [{"type": "video", "video": image_contents}, {"type": "text", "text": context}]})
                         else:
                             vr = decord.VideoReader(visual)
