@@ -244,21 +244,20 @@ class Qwen2_VL(lmms):
                 contexts = list(contexts)
 
             for i in range(len(contexts)):
-                if "<image>" in contexts[i]:
-                    contexts[i] = contexts[i].replace("<image>", "")
                 if "<image 1>" in contexts[i]:
-                    contexts[i] = contexts[i].replace("<image 1>", "<image 32>")
+                    contexts[i] = contexts[i].replace("<image 1>", "<image>")
                 if "\\<image 1\\>" in contexts[i]:
-                    contexts[i] = contexts[i].replace("\\<image 1\\>", "\\<image 32\\>")
+                    contexts[i] = contexts[i].replace("\\<image 1\\>", "<image>")
                 print(contexts[i])
 
             messages = []
             processed_visuals = []
             for i, context in enumerate(contexts):
-                context += "\nPlease think step by step.\nThe quiz image is the last image."
+                context += "\nPlease think step by step."
 
                 if "<image>" in context:
-                    context = context.replace("<image>", "")
+                    context = context.split("<image>")
+                    assert len(context) == 2, f"Expected 2 parts in context but got {len(context)}"
 
                 message = [{"role": "system", "content": "You are a helpful assistant."}]
 
@@ -268,6 +267,13 @@ class Qwen2_VL(lmms):
                         if self.use_custom_video_loader:
                             visual = read_video_pyav_base64(visual, num_frm=self.max_num_frames, fps=self.fps, img_format="JPEG", max_image_size=self.max_image_size)
                             image_contents = list(map(lambda x: f"data:image/jpeg;base64,{x}", visual))
+                            if len(context) == 2:
+                                message.append(
+                                    {"role": "user", "content": [{"type": "video", "video": image_contents[:-1]}, {"type": "text", "text": context[0]}, {"type": "image", "image": image_contents[-1]}, {"type": "text", "text": context[1]}]}
+                                )
+                                import json
+
+                                print("message", json.dumps(context, indent=4))
                             message.append({"role": "user", "content": [{"type": "video", "video": image_contents}, {"type": "text", "text": context}]})
                         else:
                             vr = decord.VideoReader(visual)
