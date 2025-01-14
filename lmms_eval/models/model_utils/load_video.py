@@ -133,7 +133,6 @@ def read_video_pyav_base64(video_path: str, *, num_frm: int = 8, fps: Optional[f
     frames = read_video_pyav(video_path, num_frm=num_frm, fps=fps, format=format)
     base64_frames = []
     img = Image.fromarray(frames[-1])
-    img.save("test.png")
     for frame in frames:
         img = Image.fromarray(frame)
         if max_image_size:
