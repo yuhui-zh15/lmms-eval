@@ -40,14 +40,14 @@ class Qwen2_VL(lmms):
         batch_size: Optional[Union[int, str]] = 1,
         use_cache=True,
         use_flash_attention_2: Optional[bool] = True,
-        max_pixels: int = 1605632,
+        max_pixels: int = 1605632 // (2**6),
         min_pixels: int = 3136,
-        max_num_frames: int = 10,
-        use_custom_video_loader: Optional[bool] = False,
+        max_num_frames: int = 20,
+        use_custom_video_loader: Optional[bool] = True,
         fps: Optional[float] = None,  # Only applicable if use_custom_video_loader is True
-        max_image_size: Optional[int] = None,  # Only applicable if use_custom_video_loader is True
-        continual_mode: bool = False,
-        response_persistent_folder: str = None,  # We will cache the Gemini API response in this path and use it for future requests
+        max_image_size: Optional[int] = 1024,  # Only applicable if use_custom_video_loader is True
+        continual_mode: bool = True,
+        response_persistent_folder: str = "./logs/persistent/qwen",  # We will cache the Gemini API response in this path and use it for future requests
         **kwargs,
     ) -> None:
         super().__init__()
@@ -91,6 +91,8 @@ class Qwen2_VL(lmms):
         self.max_pixels = max_pixels
         self.min_pixels = min_pixels
         self.max_num_frames = max_num_frames
+        self.processor = AutoProcessor.from_pretrained(pretrained, max_pixels=max_pixels, min_pixels=min_pixels)
+        self._tokenizer = AutoTokenizer.from_pretrained(pretrained)
 
         self._config = self.model.config
         self.batch_size_per_gpu = int(batch_size)
