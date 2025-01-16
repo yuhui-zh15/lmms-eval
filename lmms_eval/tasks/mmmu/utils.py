@@ -68,6 +68,9 @@ def mmmu_doc_to_visual(doc):
     # Remove <> and  swap space as _
     image_tokens = sorted(list(set([image_token.strip("<>").replace(" ", "_") for image_token in image_tokens])))
     visual = [doc[image_token].convert("RGB") for image_token in image_tokens]
+    if doc["id"] == "validation_Psychology_21":
+        print(image_tokens)
+        print(visual)
     return visual
 
 
