@@ -139,7 +139,7 @@ class GPT4V(lmms):
         return new_list
 
     def construct_interleaved_input(self, content, media):
-        print(content, len(media))
+        # print(content, len(media))
         pattern = r"<media_(\d+)>"
         parts = re.split(pattern, content)
         result = []
