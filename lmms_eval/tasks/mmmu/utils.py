@@ -12,7 +12,7 @@ from loguru import logger as eval_logger
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 
-MULTI_CHOICE_PROMPT = "Answer with the option's letter from the given choices directly."
+MULTI_CHOICE_PROMPT = ""
 OPEN_ENDED_PROMPT = "Answer the question using a single word or phrase."
 
 with open(Path(__file__).parent / "_default_template_yaml", "r") as f:
@@ -47,9 +47,9 @@ def construct_prompt(doc):
         # Weirdly, data["options"] is a string in MMMU Huggingface dataset
         parsed_options = parse_options(ast.literal_eval(doc["options"]))
         # parsed_options already prepends a newline so no need to add space here
-        question = f"{question}\n{parsed_options}\n\n{MULTI_CHOICE_PROMPT}"
+        question = f"{question}\n{parsed_options}"
     else:
-        question = f"{question}\n\n{OPEN_ENDED_PROMPT}"
+        question = f"{question}"
     return question
 
 
