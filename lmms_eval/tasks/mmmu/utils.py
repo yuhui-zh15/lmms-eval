@@ -60,6 +60,12 @@ def mmmu_doc_to_text(doc):
     return question
 
 
+def mmmu_doc_to_text_interleave(doc):
+    question = construct_prompt(doc)
+    question = re.sub(r"<image (\d+)>", lambda m: f"<media_{int(m.group(1))-1}>", question)
+    return question
+
+
 def mmmu_doc_to_visual(doc):
     prompt = construct_prompt(doc)
     image_tokens = re.findall(r"<image \d+>", prompt)

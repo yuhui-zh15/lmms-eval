@@ -53,6 +53,7 @@ class GPT4V(lmms):
         timeout: int = 120,
         continual_mode: bool = False,
         response_persistent_folder: str = None,
+        interleaved: bool = True,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -65,6 +66,7 @@ class GPT4V(lmms):
         self.image_token = "<image>"
         self.timeout = timeout
         self.continual_mode = continual_mode
+        self.interleaved = interleaved
         if self.continual_mode:
             if response_persistent_folder is None:
                 raise ValueError("Continual mode requires a persistent path for the response. Please provide a valid path.")
@@ -136,6 +138,21 @@ class GPT4V(lmms):
                 new_list.append(j)
         return new_list
 
+    def construct_interleaved_input(self, content, media):
+        print(content, len(media))
+        pattern = r"<media_(\d+)>"
+        parts = re.split(pattern, content)
+        result = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                if part == "":
+                    continue
+                result.append({"type": "text", "text": part})
+            else:
+                result.append(media[int(part)])
+
+        return result
+
     def generate_until(self, requests) -> List[str]:
         res = []
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
@@ -167,23 +184,28 @@ class GPT4V(lmms):
 
             response_json = {"role": "user", "content": []}
             # When there is no image token in the context, append the image to the text
-            if self.image_token not in contexts:
-                payload["messages"].append(deepcopy(response_json))
-                payload["messages"][0]["content"].append({"type": "text", "text": contexts})
-                for img in imgs:
-                    payload["messages"][0]["content"].append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}})
-            else:
-                contexts = contexts.split(self.image_token)
-                for idx, img in enumerate(imgs):
+            if not self.interleaved:
+                if self.image_token not in contexts:
                     payload["messages"].append(deepcopy(response_json))
-                    payload["messages"][idx]["content"].append({"type": "text", "text": contexts[idx]})
-                    payload["messages"][idx]["content"].append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}})
+                    payload["messages"][0]["content"].append({"type": "text", "text": contexts})
+                    for img in imgs:
+                        payload["messages"][0]["content"].append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}})
+                else:
+                    contexts = contexts.split(self.image_token)
+                    for idx, img in enumerate(imgs):
+                        payload["messages"].append(deepcopy(response_json))
+                        payload["messages"][idx]["content"].append({"type": "text", "text": contexts[idx]})
+                        payload["messages"][idx]["content"].append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}})
 
-                # If n image tokens are in the contexts
-                # contexts will be splitted into n+1 chunks
-                # Manually add it into the payload
+                    # If n image tokens are in the contexts
+                    # contexts will be splitted into n+1 chunks
+                    # Manually add it into the payload
+                    payload["messages"].append(deepcopy(response_json))
+                    payload["messages"][-1]["content"].append({"type": "text", "text": contexts[-1]})
+            else:
+                media = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}} for img in imgs]
                 payload["messages"].append(deepcopy(response_json))
-                payload["messages"][-1]["content"].append({"type": "text", "text": contexts[-1]})
+                payload["messages"][0]["content"].extend(self.construct_interleaved_input(contexts, media))
 
             if "max_new_tokens" not in gen_kwargs:
                 gen_kwargs["max_new_tokens"] = 1024
