@@ -170,7 +170,7 @@ class MathVistaEvaluator:
 
     def _post_request(self, payload):
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "api-key": self.api_key,
             "Content-Type": "application/json",
         }
         response = requests.post(self.API_URL, headers=headers, json=payload, timeout=30)
@@ -183,8 +183,8 @@ class MathVistaEvaluator:
         ]
         payload = {"model": self.gpt_model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "n": n}
 
-        if self.API_TYPE == "azure":
-            payload.pop("model")
+        # if self.API_TYPE == "azure":
+        # payload.pop("model")
 
         while patience > 0:
             patience -= 1

@@ -22,6 +22,13 @@ try:
 except ImportError:
     eval_logger.warning("Failed to import qwen_vl_utils; Please install it via `pip install qwen-vl-utils`")
 
+SYSTEM_PROMPT = (
+    "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
+    "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
+    "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
+    "<think> reasoning process here </think><answer> answer here </answer>"
+)
+
 
 @register_model("qwen2_vl")
 class Qwen2_VL(lmms):
@@ -198,7 +205,7 @@ class Qwen2_VL(lmms):
                 if "<image>" in context:
                     context = context.replace("<image>", "")
 
-                message = [{"role": "system", "content": "You are a helpful assistant."}]
+                message = [{"role": "system", "content": SYSTEM_PROMPT}]
 
                 if len(visuals) > 0:
                     visual = visuals[i] if i < len(visuals) else None
@@ -264,9 +271,7 @@ class Qwen2_VL(lmms):
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=pad_token_id,
                 do_sample=True if gen_kwargs["temperature"] > 0 else False,
-                temperature=gen_kwargs["temperature"],
-                top_p=gen_kwargs["top_p"],
-                num_beams=gen_kwargs["num_beams"],
+                temperature=0,
                 max_new_tokens=gen_kwargs["max_new_tokens"],
                 use_cache=self.use_cache,
             )
